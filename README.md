@@ -253,7 +253,57 @@ void Error_Handler(void)
   * @param  file: pointer to the source file name
   * @param  line: assert_param error line source number
   * @retval None
+
   */
+
+  /*
+ * exti_func.c
+ *
+ *  Created on: Oct 8, 2022
+ *      Author: shoko
+ */
+
+
+#include "main.h"
+extern uint8_t flag;
+extern uint8_t btn_cur ;
+extern uint8_t btn_prev ;
+extern uint8_t count;
+
+extern TIM_HandleTypeDef htim1;
+
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+
+	if(htim->Instance == TIM1)
+	{
+		HAL_TIM_Base_Stop_IT(&htim1); // останавливаем таймер
+		__HAL_GPIO_EXTI_CLEAR_IT(BUTTON_EXTI_Pin);  // очищаем бит EXTI_PR (бит прерывания)
+		NVIC_ClearPendingIRQ(EXTI15_10_IRQn); // очищаем бит NVIC_ICPRx (бит очереди)
+		HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);   // включаем внешнее прерывание
+		btn_cur = HAL_GPIO_ReadPin(BUTTON_EXTI_GPIO_Port, BUTTON_EXTI_Pin);
+		if((btn_prev == 0) && (btn_cur != 0))
+		{
+			count++;
+			if(count == 4)
+			{
+				count = 0;
+			}
+		}
+	}
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	if(GPIO_Pin == BUTTON_EXTI_Pin)
+	{
+		HAL_NVIC_DisableIRQ(EXTI15_10_IRQn); // сразу же отключаем прерывания на этом пине
+		// либо выполняем какое-то действие прямо тут, либо поднимаем флажок
+		HAL_TIM_Base_Start_IT(&htim1); // запускаем таймер
+	}
+}
+
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
@@ -262,3 +312,58 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
+/*
+ * usart3.c
+ *
+ *  Created on: 9 окт. 2022 г.
+ *      Author: shoko
+ */
+
+#include "main.h"
+#include "stdio.h"
+
+extern volatile uint8_t counter;
+extern volatile uint8_t buff[16];
+extern volatile uint8_t value;
+extern volatile uint8_t flag;
+
+extern int str[255];
+
+extern UART_HandleTypeDef huart3;
+extern DMA_HandleTypeDef hdma_usart3_tx;
+extern DMA_HandleTypeDef hdma_usart3_rx;
+
+int __io_putchar(int ch)
+{
+	HAL_UART_Transmit(&huart3, (uint8_t*) &ch, 1, HAL_MAX_DELAY);
+	return 0;
+}
+//Receive one char in blocking mode
+int __io_getchar(void)
+{
+	uint8_t result;
+	__HAL_UART_CLEAR_OREFLAG(&huart3);
+	HAL_UART_Receive(&huart3, &result, 1, HAL_MAX_DELAY);
+	if (result == '\r')
+		result = '\n'; // Dirty hack. Replace "return" character with "new line" character
+	return (int) result;
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if (huart == &huart3)
+	{
+		HAL_UART_Receive_IT(&huart3, &value, 1);
+		//	sscanf(value,"%d",&buff[counter]);
+		buff[counter] = value;
+
+		if (value == '\r')
+		{
+			counter = 0;
+			flag = 1;
+		}
+		else
+			counter++;
+	}
+}
